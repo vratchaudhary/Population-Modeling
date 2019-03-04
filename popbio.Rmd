@@ -1,0 +1,178 @@
+---
+title: "Popbio tutorial"
+author: "Matrix population modeling workshop"
+date: "3/4/2019"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R package 'Popbio' tutorial
+
+This is a short tutorial of R package Popbio using the example dataset from the package. Popbio package allows for construction and analysis of of matrix population models. 
+```{r}
+#install popbio
+#install.packages("popbio")
+library(popbio)
+
+###let's see all the data in popbio
+data(package="popbio")
+
+####load whale data matrix
+data("whale")
+head(whale)
+
+```
+# Create matrix
+```{r}
+# Create a matrix
+# 1. Using values
+tiger.vector<-c(0,0,2.34,0.368,0, 0, 0, 0.452, 0)  
+ages<-c("cubs", "subadult", "adult") #age categories
+A.tiger=matrix2(tiger.vector, ages)
+A.tiger
+
+```
+```{r}
+#2. using lower level prameters
+
+goose.vr<-list( Ss0=0.1357, Ss1=0.8926, Sf2=0.6388, Sf3= 0.8943) #vital ratevalues 
+goose.el<-expression( 0, 0, Sf2*Ss1,Sf3*Ss1, 
+                      Ss0,0, 0, 0,
+                        0, Ss1,0, 0,
+                        0, 0, Ss1, Ss1) #matrix elements
+Avec=sapply(goose.el, eval, goose.vr) # evaluate the expression (calculate values) 
+A=matrix(Avec, nrow=sqrt(length(goose.el)), byrow=TRUE) # stick values in a matrix 
+A
+
+```
+# Let's project the population
+```{r}
+A.tiger
+n0 =c(30,20,20)
+results = pop.projection(A.tiger, n0, iterations = 50)
+names(results)
+
+####lets project this pop for 10 years
+N_vec=t(results$stage.vectors) #
+#t transposes the matrix so we can 
+#use matplot which plots columns of a matrix
+N =results$pop.sizes
+t_max=50
+time=1:t_max
+age_class = length(N_vec[1,])
+matplot(time,N_vec,type='l',xlab = "Time",
+ylab = "Population size", cex = 1.5, 
+cex.main = 1.5, cex.lab = 1.5, lwd=2, 
+cex.axis = 1.5,lty=c(1:age_class),
+col = c(1:age_class), main = "Age- structured population projection")
+legend("topright", legend = paste
+  ("age class = ",1:age_class, sep = "" ),
+lty = c(1:age_class), col = c(1:age_class))
+
+```
+
+# Some basic matrix properties 
+```{r}
+lambda(whale) #population growth rate 
+#finite population growth rate is the dominant 
+#(i.e., largest) eigenvalue of the population projection matrix A
+
+stable.stage(whale) #stable stage distribution 
+#proportional stable stage distribution
+#the stable age/stage distribution is the 
+#right eigenvector corresponding to the dominant eigenvalue (usually scaled to sum to 1)
+
+reproductive.value(whale) #reproductive value 
+#reproductive value vector is the left eigenvector corresponding to the dominant eigenvalue
+#(usually scaled such that reproductive value of the youngest age class or stage is 1)
+
+net.reproductive.rate(whale) #net reproductive rate 
+
+damping.ratio(whale) #damping ratio 
+#The damping ratio is calculated by dividing
+#the dominant eigenvalue by the eigenvalue 
+#with the second largest magnitude.
+
+generation.time(whale) #generation time
+
+##########All of these at the same time
+eigen.analysis(whale)
+```
+
+# Stochasticity
+
+```{r}
+data(hudsonia)
+lambdas<-sapply(hudsonia, lambda)
+lambdas
+#with equal probabilities:
+#Calculates the log stochastic growth rate by Tuljapukar's approximation and by simulation
+sgr<-stoch.growth.rate(hudsonia, verbose=F) 
+sgr
+exp(sgr$approx) #transformation
+#with unequal probabilities: 
+sgr_unequal=stoch.growth.rate(hudsonia, prob=c(0.2,0.2,0.4,0.2),verbose=F)
+sgr_unequal
+#stochastic population projection:
+n<- c(4264, 3,30,16,25,5) #count data
+t_max=50
+?stoch.projection
+### compare equal and unequal probabilities for matrix selection: 
+x.eq<-stoch.projection(hudsonia, n, nreps=1000)
+head(x.eq) ##environmental conditions same across all years
+N_eq= rowSums(x.eq)
+N_eq=sum(N_eq)
+N_eq
+###Unequal environment probability
+x.uneq<-stoch.projection(hudsonia, n, nreps=1000, prob=c(0.2,0.2,0.4,0.2))
+head(x.uneq)
+N_uneq= rowSums(x.uneq)
+N_uneq=sum(N_uneq)
+N_uneq
+#environmental conditions of last year may be more frequent 
+##example- hot years may be more frequent in the future
+hist(apply(x.eq, 1, sum), 
+xlim=c(0,5000), ylim=c(0,200), col="green", breaks=seq(0,5000, 100), 
+xlab="Final population size at t=50", main="")
+par(new=TRUE)
+hist(apply(x.uneq, 1, sum),
+xlim=c(0,5000), ylim=c(0,200), 
+col = rgb(0, 0, 1, 0.2), 
+xaxt='n', yaxt='n', ylab='', xlab='',
+breaks=seq(0,10000, 100), main='')
+legend(2500,200, c("equal", "unequal"),
+fill=c("green", rgb(0, 0, 1, 0.2)))
+title(paste("Projection of stochastic 
+growth for Hudsonia using equal
+and unequal probabilities"), cex.main=1)
+
+#stochastic sensitivities:
+stsens=stoch.sens(hudsonia) 
+#Calculates the sensitivity of the stochastic
+#growth rate to perturbations 
+#in the mean demographic projection matrix.
+stsens= stoch.sens(hudsonia)
+row.names(stsens$sensitivities)=
+  colnames(stsens$sensitivities) 
+image2(stsens$sensitivities)
+
+
+# (quasi)-extinction risk:
+n <- c(4264, 3, 30, 16, 25, 5)
+Nx=20 #critical threshold
+# exclude seeds using sumweight:
+
+x <- stoch.quasi.ext(hudsonia, n, 
+Nx=Nx, nreps=100, sumweight=c(0,1,1,1,1,1), 
+verbose=F) 
+matplot(x, xlab="Years", ylab="Quasi-extinction probability",
+type='l', lty=1, col=rainbow(10), las=1)
+
+```
+
+
+
+
